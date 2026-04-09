@@ -1,0 +1,10 @@
+langchain-openai
+fastapi
+uvicorn
+python-dotenv
+pydantic
+pytest
+httpx
+supabase
+tqdm
+rich
