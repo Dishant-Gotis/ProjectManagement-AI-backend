@@ -8,7 +8,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from services.llm_service import llm_service
 from models.card import CaseStudyCard
 
-def test_prototype(query: str):
+def run_prototype(query: str):
     print(f"\n{'='*60}")
     print(f"LIVE REASONING TEST: {query}")
     print(f"{'='*60}")
@@ -29,4 +29,4 @@ def test_prototype(query: str):
         print(f"\n[ERROR] Test failed: {e}")
 
 if __name__ == "__main__":
-    test_prototype("How does Toyota use Just-In-Time to manage inventory risks?")
+    run_prototype("How does Toyota use Just-In-Time to manage inventory risks?")

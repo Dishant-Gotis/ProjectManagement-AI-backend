@@ -5,6 +5,10 @@ import requests
 import os
 
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+TAVILY_TIMEOUT_SECONDS = float(os.getenv("TAVILY_TIMEOUT_SECONDS", "6"))
+WEB_MAX_RESULTS = int(os.getenv("WEB_MAX_RESULTS", "2"))
+KB_MATCH_LIMIT = int(os.getenv("KB_MATCH_LIMIT", "3"))
+KB_MATCH_THRESHOLD = float(os.getenv("KB_MATCH_THRESHOLD", "0.5"))
 
 def get_tool_schemas() -> List[Dict[str, Any]]:
     """
@@ -42,11 +46,15 @@ def execute_tool(name: str, args: Dict[str, Any]) -> Any:
     print(f"--- [SERVICE] Executing Tool: {name} (Args: {args}) ---")
     
     if name == "retrieve_kb":
-        query = args.get("query")
+        query = args.get("query", "")
         # 1. Embed the query
         vector = embed_service.embed_text(query)
         # 2. Search Supabase
-        results = supabase_service.search_knowledge_base(vector)
+        results = supabase_service.search_knowledge_base(
+            vector,
+            threshold=KB_MATCH_THRESHOLD,
+            limit=KB_MATCH_LIMIT,
+        )
         return {
             "source": "knowledge_base",
             "results": results
@@ -63,9 +71,9 @@ def execute_tool(name: str, args: Dict[str, Any]) -> Any:
                 "api_key": TAVILY_API_KEY,
                 "query": query,
                 "search_depth": "basic",
-                "max_results": 3
+                "max_results": WEB_MAX_RESULTS
             }
-            response = requests.post(url, json=payload)
+            response = requests.post(url, json=payload, timeout=TAVILY_TIMEOUT_SECONDS)
             response.raise_for_status()
             data = response.json()
             return {

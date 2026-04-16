@@ -8,6 +8,7 @@ load_dotenv()
 # Configuration
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or os.getenv("LLM_API_KEY")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "openai/text-embedding-3-small")
+EMBED_TIMEOUT_SECONDS = float(os.getenv("EMBED_TIMEOUT_SECONDS", "6"))
 
 class EmbedService:
     def __init__(self):
@@ -33,7 +34,12 @@ class EmbedService:
         }
         
         try:
-            response = requests.post(self.url, headers=headers, json=payload)
+            response = requests.post(
+                self.url,
+                headers=headers,
+                json=payload,
+                timeout=EMBED_TIMEOUT_SECONDS,
+            )
             response.raise_for_status()
             data = response.json()
             embedding = data["data"][0]["embedding"]

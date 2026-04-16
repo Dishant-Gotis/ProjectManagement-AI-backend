@@ -1,101 +1,91 @@
 import unittest
 import sys
 import os
-import json
 
 # Add current directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from unittest.mock import MagicMock, patch
-from services.llm_service import LLMService
 from models.card import CaseStudyCard
+from services.llm_service import LLMService
+
+
+def build_case_study_card() -> CaseStudyCard:
+    return CaseStudyCard(
+        concept="Earned Value Management",
+        story="A delivery program used EVM metrics to spot schedule and cost drift in week three.",
+        problem="The team was unsure whether to continue the current scope or re-plan.",
+        decision_point="The PM had to decide between recovery actions and timeline renegotiation.",
+        concept_mapping="SPI and CPI below 1.0 signaled underperformance.",
+        key_lessons=["Track trends early", "Act on variance quickly", "Communicate trade-offs"],
+        think_about_this="What thresholds should trigger corrective action in your project?",
+    )
 
 class TestReasoningLoop(unittest.TestCase):
-    @patch('services.llm_service.ChatOpenAI')
-    @patch('services.llm_service.get_tool_schemas')
-    def test_process_query_direct(self, mock_get_schemas, mock_chat_openai):
-        """
-        Test that process_query returns a valid card when the LLM responds directly (no tools).
-        """
-        # Mocking the LLM
+    @patch("services.supabase_service.supabase_service.save_query_history")
+    @patch("services.llm_service.execute_tool")
+    @patch("services.llm_service.get_tool_schemas")
+    @patch("services.llm_service.ChatOpenAI")
+    def test_case_study_route_returns_structured_card(
+        self,
+        mock_chat_openai,
+        mock_get_schemas,
+        mock_execute_tool,
+        mock_save_query_history,
+    ):
+        mock_llm_instance = MagicMock()
+        mock_chat_openai.return_value = mock_llm_instance
+        mock_get_schemas.return_value = [{"name": "retrieve_kb"}, {"name": "web_search"}]
+        mock_llm_instance.bind_tools.return_value = MagicMock()
+
+        mock_chat_llm = MagicMock()
+        mock_chat_llm.invoke.return_value = MagicMock(content="fallback text")
+        mock_llm_instance.bind.return_value = mock_chat_llm
+
+        mock_structured_llm = MagicMock()
+        mock_structured_llm.invoke.return_value = build_case_study_card()
+        mock_llm_instance.with_structured_output.return_value = mock_structured_llm
+
+        mock_execute_tool.side_effect = [
+            {"source": "knowledge_base", "results": [{"title": "EVM Basics"}]},
+            {"source": "web_search", "results": [{"title": "NASA EVM"}]},
+        ]
+
+        service = LLMService()
+        service._load_history = MagicMock(return_value=[])
+        card = service.process_query("Explain EVM in project management", user_id="test-user")
+
+        self.assertIsInstance(card, CaseStudyCard)
+        self.assertEqual(card.concept, "Earned Value Management")
+        self.assertEqual(mock_execute_tool.call_count, 2)
+        mock_save_query_history.assert_called_once()
+
+    @patch("services.supabase_service.supabase_service.save_query_history")
+    @patch("services.llm_service.execute_tool")
+    @patch("services.llm_service.get_tool_schemas")
+    @patch("services.llm_service.ChatOpenAI")
+    def test_greeting_fast_path_skips_tool_calls(
+        self,
+        mock_chat_openai,
+        mock_get_schemas,
+        mock_execute_tool,
+        mock_save_query_history,
+    ):
         mock_llm_instance = MagicMock()
         mock_chat_openai.return_value = mock_llm_instance
         mock_get_schemas.return_value = []
-        
-        # Mocking the bound LLM response
-        mock_bound_llm = MagicMock()
-        mock_llm_instance.bind_tools.return_value = mock_bound_llm
-        
-        # Mocking a direct JSON response
-        mock_card_json = {
-            "concept": "Scope Management",
-            "story": "A project manager at a software company had to define what was in and out of scope.",
-            "problem": "Uncontrolled feature creep.",
-            "decision_point": "Saying no to the CEO.",
-            "concept_mapping": "Demonstrates scope baseline.",
-            "key_lessons": ["Lock early", "Document everything"],
-            "think_about_this": "How would you handle a CEO?"
-        }
-        
-        # Configure a plain mock object (avoiding spec issues with complex types)
-        mock_response = MagicMock()
-        mock_response.content = json.dumps(mock_card_json)
-        mock_response.tool_calls = []
-        mock_bound_llm.invoke.return_value = mock_response
+        mock_llm_instance.bind_tools.return_value = MagicMock()
+        mock_llm_instance.bind.return_value = MagicMock()
 
-        # Run the service
         service = LLMService()
-        card = service.process_query("Tell me about scope")
+        service._load_history = MagicMock(return_value=[])
+        response = service.process_query("hii", user_id="test-user")
 
-        # Assertions
-        self.assertIsInstance(card, CaseStudyCard)
-        self.assertEqual(card.concept, "Scope Management")
-        self.assertEqual(len(card.key_lessons), 2)
-
-    @patch('services.llm_service.ChatOpenAI')
-    @patch('services.llm_service.execute_tool')
-    @patch('services.llm_service.get_tool_schemas')
-    def test_process_query_with_tool_loop(self, mock_get_schemas, mock_execute_tool, mock_chat_openai):
-        """
-        Test that process_query handles tool calls and then synthesizes a card.
-        """
-        mock_llm_instance = MagicMock()
-        mock_chat_openai.return_value = mock_llm_instance
-        mock_get_schemas.return_value = [{"name": "retrieve_kb"}]
-        
-        mock_bound_llm = MagicMock()
-        mock_llm_instance.bind_tools.return_value = mock_bound_llm
-        
-        # Turn 1: LLM calls a tool
-        mock_resp_1 = MagicMock()
-        mock_resp_1.tool_calls = [{"name": "retrieve_kb", "args": {"query": "EVM"}, "id": "call_1"}]
-        mock_resp_1.content = ""
-        
-        # Turn 2: LLM provides final synthesis
-        mock_card_json = {
-            "concept": "EVM",
-            "story": "EVM was used.",
-            "problem": "Cost overruns.",
-            "decision_point": "Stop or go?",
-            "concept_mapping": "CPI < 1.",
-            "key_lessons": ["Watch costs"],
-            "think_about_this": "Why CPI matters?"
-        }
-        mock_resp_2 = MagicMock()
-        mock_resp_2.tool_calls = []
-        mock_resp_2.content = json.dumps(mock_card_json)
-        
-        # Set sequence of responses
-        mock_bound_llm.invoke.side_effect = [mock_resp_1, mock_resp_2]
-        mock_execute_tool.return_value = {"content": "EVM results"}
-
-        # Run the service
-        service = LLMService()
-        card = service.process_query("Explain EVM")
-
-        # Assertions
-        self.assertEqual(mock_execute_tool.call_count, 1)
-        self.assertEqual(card.concept, "EVM")
+        self.assertIsInstance(response, str)
+        self.assertIn("project management", response.lower())
+        mock_execute_tool.assert_not_called()
+        self.assertFalse(mock_llm_instance.with_structured_output.called)
+        mock_save_query_history.assert_called_once()
 
 if __name__ == '__main__':
     unittest.main()

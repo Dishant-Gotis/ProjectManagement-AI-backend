@@ -1,6 +1,7 @@
 import os
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from typing import Optional, Any
 from dotenv import load_dotenv
@@ -95,7 +96,11 @@ async def generate_card(request: GenerateRequest):
     """
     try:
         # LLM Service now handles internal Supabase DB tracking natively
-        result = llm_service.process_query(request.query, user_id=request.user_id or "anonymous")
+        result = await run_in_threadpool(
+            llm_service.process_query,
+            request.query,
+            request.user_id or "anonymous",
+        )
         
         if isinstance(result, str):
             return GenerateResponse(type="chat", content=result)
